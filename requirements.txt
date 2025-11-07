@@ -1,0 +1,6 @@
+ultralytics==8.0.126
+opencv-python
+pillow
+numpy
+pandas
+tqdm

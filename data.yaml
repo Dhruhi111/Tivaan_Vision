@@ -1,0 +1,7 @@
+# data.yaml
+train: D:/Dhruhi Nuv/College/Tivaan_Vision/DroneVehiclesDatasetYOLO/train/images
+val: D:/Dhruhi Nuv/College/Tivaan_Vision/DroneVehiclesDatasetYOLO/val/images
+test: D:/Dhruhi Nuv/College/Tivaan_Vision/DroneVehiclesDatasetYOLO/test/images
+
+nc: 1
+names: ['vehicle']

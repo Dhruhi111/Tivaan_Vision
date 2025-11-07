@@ -1,0 +1,19 @@
+# Ignore virtual environment and big folders
+venv/
+__pycache__/
+.DS_Store
+
+# Ignore dataset and heavy training outputs
+DroneVehiclesDatasetYOLO/
+results/
+runs/
+
+# Ignore model weights (you can upload best.pt separately later if needed)
+*.pt
+*.onnx
+*.engine
+
+# Ignore temporary files
+*.log
+*.tmp
+*.cache
