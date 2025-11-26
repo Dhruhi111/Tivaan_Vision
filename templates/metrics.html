@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card big">
+  <h1>Model Metrics & Training Results</h1>
+
+  <div class="metrics-grid" style="display:grid; grid-template-columns: 1fr 380px; gap:18px; align-items:start;">
+    <div>
+      <div style="display:flex; gap:12px; align-items:center;">
+        <div style="flex:1">
+          <h3>Key numbers</h3>
+          <ul style="list-style:none; padding:0; margin:0;">
+            <li><strong>mAP:</strong> <span id="mAP">—</span></li>
+            <li><strong>Precision:</strong> <span id="precision">—</span></li>
+            <li><strong>Recall:</strong> <span id="recall">—</span></li>
+            <li><strong>Best checkpoint:</strong> <span id="best_ckpt">best.pt</span></li>
+          </ul>
+        </div>
+
+        <div style="width:220px;">
+          <h4>Charts</h4>
+          <canvas id="prChart" style="width:100%;height:180px;"></canvas>
+        </div>
+      </div>
+
+      <div style="margin-top:18px;">
+        <h3>Training plots</h3>
+        <div class="plots" style="display:flex; flex-wrap:wrap; gap:12px;">
+          <div style="flex:1; min-width:260px;">
+            <div style="font-weight:600">Confusion matrix</div>
+            <img id="confusionImg" src="/static/results/confusion_matrix.png" alt="confusion" style="width:100%; border-radius:8px; margin-top:6px;" />
+          </div>
+
+          <div style="flex:1; min-width:260px;">
+            <div style="font-weight:600">Label distribution / examples</div>
+            <img id="labelsImg" src="/static/results/labels.jpg" alt="labels" style="width:100%; border-radius:8px; margin-top:6px;" />
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top:18px;">
+        <h3>Detailed metrics JSON (if available)</h3>
+        <pre id="metricsRaw" style="background:#0f1724; color:#dbeafe; padding:12px; border-radius:8px; max-height:320px; overflow:auto;">No metrics.json found</pre>
+      </div>
+    </div>
+
+    <aside style="border-left:1px solid var(--muted); padding-left:16px;">
+      <h3>Quick checks</h3>
+      <div>
+        <div><strong>Model status:</strong> <a href="/api/status" target="_blank" id="statusLink">/api/status</a></div>
+        <div style="margin-top:8px;"><strong>Latest annotated:</strong>
+          <div id="latestWrap" style="margin-top:8px;">
+            <img id="latestImg" src="" alt="latest" style="max-width:320px; display:none; border-radius:8px;" />
+            <div id="latestNone" style="color:var(--muted)">No annotated images yet</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top:18px;">
+        <h4>Export / Save</h4>
+        <p style="margin:0 0 8px 0;">You can download current metrics JSON if present.</p>
+        <button id="downloadMetrics" class="primary">Download metrics.json</button>
+      </div>
+    </aside>
+  </div>
+</section>
+
+<!-- Chart.js CDN -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+async function loadMetricsAndPlots() {
+  try {
+    const r = await fetch('/api/metrics');
+    const j = await r.json();
+
+    // metrics (expected structure: j.metrics is a dict {mAP, precision, recall, pr_curve:[], ...})
+    const metrics = j.metrics || null;
+    document.getElementById('metricsRaw').textContent = metrics ? JSON.stringify(metrics, null, 2) : "No metrics.json found";
+
+    // fill numbers if present
+    document.getElementById('mAP').textContent = metrics && metrics.mAP !== undefined ? metrics.mAP : "—";
+    document.getElementById('precision').textContent = metrics && metrics.precision !== undefined ? metrics.precision : "—";
+    document.getElementById('recall').textContent = metrics && metrics.recall !== undefined ? metrics.recall : "—";
+
+    // show images if present (fallbacks are already present as placeholders)
+    const conf = j.confusion_matrix || '/static/results/confusion_matrix.png';
+    const labels = j.labels || '/static/results/labels.jpg';
+    document.getElementById('confusionImg').src = conf + "?t=" + Date.now();
+    document.getElementById('labelsImg').src = labels + "?t=" + Date.now();
+
+    // latest annotated preview (call endpoint)
+    const l = await fetch('/api/latest_annotated');
+    const lj = await l.json();
+    if (lj.latest_annotated) {
+      document.getElementById('latestImg').src = lj.latest_annotated + "?t=" + Date.now();
+      document.getElementById('latestImg').style.display = 'block';
+      document.getElementById('latestNone').style.display = 'none';
+    } else {
+      document.getElementById('latestImg').style.display = 'none';
+      document.getElementById('latestNone').style.display = 'block';
+    }
+
+    // PR chart: if metrics.pr_curve exists, expect format: [{precision:..., recall:...}, ...] OR {precision:[], recall:[]}
+    let prX = [], prY = [];
+    if (metrics) {
+      if (metrics.pr_curve && Array.isArray(metrics.pr_curve)) {
+        // array of points {precision, recall}
+        prX = metrics.pr_curve.map(p => p.recall);
+        prY = metrics.pr_curve.map(p => p.precision);
+      } else if (metrics.precisions && metrics.recalls) {
+        prX = metrics.recalls;
+        prY = metrics.precisions;
+      }
+    }
+
+    renderPRChart(prX, prY);
+
+  } catch (e) {
+    console.warn("metrics fetch failed", e);
+  }
+}
+
+let prChartInstance = null;
+function renderPRChart(x, y) {
+  const ctx = document.getElementById('prChart').getContext('2d');
+  if (prChartInstance) prChartInstance.destroy();
+  prChartInstance = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: x.length ? x : [],
+      datasets: [{
+        label: 'Precision vs Recall',
+        data: y.length ? y : [],
+        fill: true,
+        tension: 0.3,
+      }]
+    },
+    options: {
+      responsive: true,
+      scales: {
+        x: { title: { display:true, text:'Recall' }, min:0, max:1 },
+        y: { title: { display:true, text:'Precision' }, min:0, max:1 }
+      }
+    }
+  });
+}
+
+// Download metrics.json
+document.getElementById('downloadMetrics').addEventListener('click', async () => {
+  try {
+    const r = await fetch('/api/metrics');
+    const j = await r.json();
+    const blob = new Blob([JSON.stringify(j.metrics || {}, null, 2)], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'metrics.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    alert("Failed to download metrics. Check console.");
+    console.error(e);
+  }
+});
+
+loadMetricsAndPlots();
+</script>
+{% endblock %}

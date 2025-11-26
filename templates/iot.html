@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card big">
+  <h1>IoT Simulator — Distance & Actions</h1>
+
+  <div style="display:flex; gap:16px; flex-wrap:wrap;">
+    <div style="flex:1; min-width:260px;">
+      <label><strong>Enter distance from obstacle / hazard</strong></label><br/>
+      <input id="distInput" type="number" value="2" style="width:120px;" /> 
+      <select id="unitSelect">
+        <option value="cm">cm</option>
+        <option value="m">m</option>
+        <option value="km">km</option>
+        <option value="mi">miles</option>
+      </select>
+
+      <div style="margin-top:12px;">
+        <button id="iotRun" class="primary">Run IoT Simulation</button>
+        <button id="iotAuto" class="ghost">Auto from last detection</button>
+      </div>
+
+      <div style="margin-top:18px;">
+        <h4>Quick notes</h4>
+        <ul>
+          <li>Ultrasonic sensor (HC-SR04) measures in cm — we simulate that here.</li>
+          <li>GPS provides location for reroute / SOS.</li>
+          <li>Wearable vibration used for haptic alerts.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div style="flex:1.2; min-width:300px;">
+      <h3>Simulation result</h3>
+      <div id="iotResult" style="background:#0b1220; color:#e6f0ff; padding:12px; border-radius:8px;">
+        <div><strong>Distance (cm):</strong> <span id="outDist">—</span></div>
+        <div><strong>Alert level:</strong> <span id="outAlert">—</span></div>
+        <div><strong>Recommended action:</strong> <span id="outAction">—</span></div>
+        <div style="margin-top:8px;"><strong>Simulated hardware actions:</strong></div>
+        <ul id="hwActions">
+          <li>Ultrasonic: —</li>
+          <li>Wearable: —</li>
+          <li>GPS / Cloud: —</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <hr style="margin:18px 0;"/>
+  <div>
+    <h3>Auto-trigger from last detection</h3>
+    <p>When a detection runs (inference), the UI auto-calls IoT with a derived distance. You can re-run it here.</p>
+  </div>
+</section>
+
+<script>
+function convertToCm(value, unit) {
+  const v = Number(value) || 0;
+  switch(unit) {
+    case 'cm': return v;
+    case 'm': return v * 100;
+    case 'km': return v * 100000;
+    case 'mi': return v * 160934.4;
+    default: return v;
+  }
+}
+
+function determineRecommendation(distanceCm) {
+  // distanceCm is in cm
+  if (distanceCm <= 0) {
+    return { alert: "UNKNOWN", action: "none" };
+  }
+  if (distanceCm < 20) {
+    return { alert: "DANGER", action: "EMERGENCY_STOP", details: "Full stop; notify emergency contacts; vibrate wearable" };
+  }
+  if (distanceCm < 50) {
+    return { alert: "WARN", action: "SLOW_DOWN", details: "Reduce speed; vibrate wearable; propose alternate route if GPS shows congestion" };
+  }
+  if (distanceCm < 200) {
+    return { alert: "CAUTION", action: "SLOW_APPROACH", details: "Reduce speed gently; visual alert" };
+  }
+  return { alert: "SAFE", action: "PROCEED", details: "All clear" };
+}
+
+function hwPlanFor(actionObj) {
+  const hw = [];
+  if (actionObj.action === "EMERGENCY_STOP") {
+    hw.push({name:"Ultrasonic HC-SR04", cmd:"trigger immediate stop signal to vehicle controller"});
+    hw.push({name:"Wearable (Titan)", cmd:"vibrate continuous + voice alert 'Stop Now' "});
+    hw.push({name:"GPS/Cloud", cmd:"send SOS with coordinates to cloud + emergency contacts"});
+  } else if (actionObj.action === "SLOW_DOWN") {
+    hw.push({name:"Ultrasonic", cmd:"send warning signal"});
+    hw.push({name:"Wearable", cmd:"short vibration + 'Slow down' voice"});
+    hw.push({name:"GPS/Cloud", cmd:"suggest alternate route if available"});
+  } else if (actionObj.action === "SLOW_APPROACH") {
+    hw.push({name:"Ultrasonic", cmd:"periodic warnings"});
+    hw.push({name:"Wearable", cmd:"short buzz"});
+  } else {
+    hw.push({name:"No hardware action needed", cmd:"monitor"});
+  }
+  return hw;
+}
+
+async function runIot(distanceInput, unit) {
+  const cm = convertToCm(distanceInput, unit);
+  document.getElementById('outDist').textContent = cm + " cm";
+  // client-side recommendation
+  const rec = determineRecommendation(cm);
+  document.getElementById('outAlert').textContent = rec.alert;
+  document.getElementById('outAction').textContent = rec.action + " — " + rec.details;
+
+  const hw = hwPlanFor(rec);
+  const hwUl = document.getElementById('hwActions');
+  hwUl.innerHTML = '';
+  hw.forEach(h => {
+    const li = document.createElement('li');
+    li.textContent = `${h.name}: ${h.cmd}`;
+    hwUl.appendChild(li);
+  });
+
+  // send to backend for simulated server-side logic (if you want server to react)
+  try {
+    const r = await fetch('/api/iot', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({distance: cm})
+    });
+    const j = await r.json();
+    console.log("iot backend:", j);
+  } catch(e){
+    console.warn("iot backend call failed", e);
+  }
+}
+
+document.getElementById('iotRun').addEventListener('click', async () => {
+  const v = document.getElementById('distInput').value;
+  const u = document.getElementById('unitSelect').value;
+  runIot(v, u);
+});
+
+// Auto from last detection — uses last vehicle count to estimate distance
+document.getElementById('iotAuto').addEventListener('click', async () => {
+  try {
+    // try to get latest detection result by checking latest annotated and metrics (we don't store counts server-side)
+    // We will call /api/latest_annotated then use a heuristic: more vehicles -> closer distance (just for demo)
+    const la = await fetch('/api/latest_annotated');
+    const lj = await la.json();
+    if (!lj.latest_annotated) {
+      alert("No detections found. Run inference first.");
+      return;
+    }
+    // If there is an annotated file, we cannot get vehicle_count from backend directly (unless you store it).
+    // Instead, call /api/metrics and metrics may contain last counts. We'll attempt a heuristic:
+    const m = await fetch('/api/metrics');
+    const mj = await m.json();
+    // Check mj.metrics.last_vehicle_count or fallback to random heuristic
+    const last_count = (mj.metrics && mj.metrics.last_vehicle_count) ? mj.metrics.last_vehicle_count : null;
+    let estimatedDistanceCm;
+    if (last_count !== null) {
+      estimatedDistanceCm = Math.max(5, Math.round(200 - last_count*3)); // heuristic
+    } else {
+      // if no count available, set 80 cm (default safe)
+      estimatedDistanceCm = 80;
+    }
+    // run normal flow
+    runIot(estimatedDistanceCm, 'cm');
+  } catch(e) {
+    console.error(e);
+    alert("Auto IoT failed. Check console.");
+  }
+});
+</script>
+{% endblock %}

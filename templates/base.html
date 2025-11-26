@@ -1,0 +1,27 @@
+<!-- templates/base.html -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>{{ title or "Tivaan Vision" }}</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body class="{{ 'light' if session.get('theme') == 'light' else 'dark' }}">
+  <header class="topbar">
+    <div class="brand"><a href="/" style="color:inherit; text-decoration:none;">Tivaan Vision</a></div>
+    <nav class="navlinks">
+      <a href="/">Home</a>
+      <a href="/inference" {% if request.path.startswith('/inference') %}class="active"{% endif %}>Inference</a>
+      <a href="/metrics" {% if request.path.startswith('/metrics') %}class="active"{% endif %}>Metrics</a>
+      <a href="/iot" {% if request.path.startswith('/iot') %}class="active"{% endif %}>IoT Sim</a>
+    </nav>
+  </header>
+
+  <main class="page">
+    {% block content %}{% endblock %}
+  </main>
+
+  <script src="{{ url_for('static', filename='js/app.js') }}" defer></script>
+</body>
+</html>

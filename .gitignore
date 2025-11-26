@@ -1,19 +1,74 @@
-# Ignore virtual environment and big folders
+# -----------------------------
+# Python / Flask Project Ignore
+# -----------------------------
 venv/
 __pycache__/
-.DS_Store
+*.pyc
+*.pyo
+*.pyd
+*.db
+*.sqlite3
 
-# Ignore dataset and heavy training outputs
+# OS-generated files
+.DS_Store
+Thumbs.db
+
+# -----------------------------
+# ML / Ultralytics YOLO
+# -----------------------------
+# Datasets (MASSIVE)
 DroneVehiclesDatasetYOLO/
+datasets/
+data/annotations/
+data/images/
+data/labels/
+
+# Training outputs (VERY LARGE)
 results/
 runs/
+weights/
+logs/
+*.bin
 
-# Ignore model weights (you can upload best.pt separately later if needed)
+# YOLO model weights
 *.pt
+*.pth
 *.onnx
 *.engine
+*.tflite
 
-# Ignore temporary files
-*.log
-*.tmp
+# Cache & temporary training artifacts
 *.cache
+*.tmp
+*.lock
+*.log
+
+# -----------------------------
+# Web / Frontend build outputs
+# -----------------------------
+static/results/*.jpg
+static/results/*.png
+static/results/*.json
+tmp_uploads/
+uploads/
+*.bak
+
+# Node / JS (in case used later)
+node_modules/
+dist/
+build/
+
+# -----------------------------
+# Jupyter / Dev / Misc
+# -----------------------------
+.ipynb_checkpoints/
+*.ipynb
+.env
+*.env
+.env.*
+
+# -----------------------------
+# Ignore local config
+# -----------------------------
+config_local.yaml
+config_local.json

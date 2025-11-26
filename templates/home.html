@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card big">
+  <h1>Welcome to Tivaan Vision</h1>
+
+  <p>
+    Aerial vehicle detection + IoT wearable alert simulation.
+    Use <a href="/inference">Inference</a> to upload an image and run detection,
+    or run a demo below that picks images from your dataset to test instantly.
+  </p>
+
+  <div style="margin-top:12px;">
+    <label for="datasetSelect"><strong>Choose dataset image (select then Run demo):</strong></label><br/>
+    <select id="datasetSelect" style="width:100%; max-width:900px; margin-top:8px;"></select>
+    <div style="margin-top:12px;">
+      <button id="demoRun" class="primary">Run demo detection on selected image</button>
+      <button id="demoListRefresh" class="ghost">Refresh list</button>
+    </div>
+
+    <div id="demoStatus" style="margin-top:12px;" class="tv-status status">Demo idle</div>
+    <div id="demoMeta" style="margin-top:8px;"></div>
+    <img id="demoAnnotated" src="" style="display:none; max-width:900px; margin-top:10px; border-radius:8px;" />
+  </div>
+
+  <div style="margin-top:18px;">
+    <strong>Quick status:</strong> <a href="/api/status">/api/status</a>
+    <br/>
+    <small>If model is loaded, /api/status will show model_loaded=true. If not, check backend logs.</small>
+  </div>
+
+  <hr style="margin:20px 0;" />
+
+  <div>
+    <strong>Latest annotated image (if any):</strong>
+    <div id="latestAnnotatedWrap" style="margin-top:8px;">
+      <img id="latestAnnotated" src="" style="max-width:900px; display:none; border-radius:8px;" />
+      <div id="latestNone" style="color:var(--muted)">No annotated images yet</div>
+    </div>
+  </div>
+
+</section>
+
+<script>
+async function fetchDatasetList() {
+  try {
+    const r = await fetch('/api/dataset_images');
+    if (!r.ok) { console.warn('dataset list failed', r.status); return []; }
+    const j = await r.json();
+    // flatten categories into one combined list (prefix with split label)
+    const combined = [];
+    for (const split of ['val','test','train']) {
+      if (Array.isArray(j[split])) {
+        j[split].forEach(p => combined.push({split: split, path: p}));
+      }
+    }
+    return combined;
+  } catch (e) {
+    console.error("fetchDatasetList error", e);
+    return [];
+  }
+}
+
+function populateSelect(list) {
+  const sel = document.getElementById('datasetSelect');
+  sel.innerHTML = '';
+  if (!list.length) {
+    const o = document.createElement('option');
+    o.value = '';
+    o.textContent = 'No dataset images found (check DATASET_DIR in backend)';
+    sel.appendChild(o);
+    return;
+  }
+  list.forEach(item => {
+    const o = document.createElement('option');
+    o.value = item.path;
+    o.textContent = `${item.split} — ${item.path.split('/').slice(-1)[0]}`;
+    sel.appendChild(o);
+  });
+}
+
+async function refreshLatestAnnotated() {
+  try {
+    const r = await fetch('/api/latest_annotated');
+    const j = await r.json();
+    const img = document.getElementById('latestAnnotated');
+    const none = document.getElementById('latestNone');
+    if (j.latest_annotated) {
+      img.src = j.latest_annotated + "?t=" + Date.now();
+      img.style.display = 'block';
+      none.style.display = 'none';
+    } else {
+      img.style.display = 'none';
+      none.style.display = 'block';
+    }
+  } catch (e) { console.warn(e); }
+}
+
+document.getElementById('demoListRefresh').addEventListener('click', async () => {
+  const list = await fetchDatasetList();
+  populateSelect(list);
+});
+
+document.getElementById('demoRun').addEventListener('click', async () => {
+  const sel = document.getElementById('datasetSelect');
+  const imgPath = sel.value;
+  const stat = document.getElementById('demoStatus');
+  const meta = document.getElementById('demoMeta');
+  const ano = document.getElementById('demoAnnotated');
+  if (!imgPath) {
+    stat.innerHTML = "<span style='color:orange'>Select an image first</span>";
+    return;
+  }
+  stat.innerHTML = "<em>Running demo detection...</em>";
+  try {
+    const url = "/api/demo_detect?img=" + encodeURIComponent(imgPath);
+    const r = await fetch(url);
+    const j = await r.json();
+    if (!r.ok) {
+      stat.innerHTML = "<span style='color:red'>Demo failed</span>";
+      console.error("demo returned", j);
+      return;
+    }
+    stat.innerHTML = "<b>Demo OK</b>";
+    meta.innerHTML = `<b>Vehicles:</b> ${j.vehicle_count} &nbsp;&nbsp; <b>Risk:</b> ${j.risk_level}`;
+    if (j.output_image) {
+      ano.src = j.output_image + "?t=" + Date.now();
+      ano.style.display = "block";
+    } else {
+      ano.style.display = "none";
+    }
+    // refresh latest annotated shown below
+    refreshLatestAnnotated();
+    // also auto-call iot if desired (optional)
+    try {
+      const distance = Math.max(5, Math.round(140 - (j.vehicle_count*2.0)));
+      await fetch('/api/iot', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({distance})
+      });
+    } catch(e){ console.warn("iot auto call failed", e); }
+  } catch (e) {
+    stat.innerHTML = "<span style='color:red'>Network error</span>";
+    console.error(e);
+  }
+});
+
+// initialize on load
+(async () => {
+  const list = await fetchDatasetList();
+  populateSelect(list);
+  refreshLatestAnnotated();
+})();
+</script>
+{% endblock %}
